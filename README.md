@@ -15,7 +15,6 @@ This project is under active development.
 ### On-Water Rowing and Hardware Setup
 ![12月30日 (3)](https://github.com/user-attachments/assets/955144c1-0135-431f-a67a-53da5287058e)
 ![12月31日(2)](https://github.com/user-attachments/assets/5f3ec397-9fdb-4bdd-8f6b-7c7095152dfb)
-![12月30日 (5)(1)](https://github.com/user-attachments/assets/2f84c73b-f926-42b0-a6d7-d952279def1c)
 
 ## Features
 
