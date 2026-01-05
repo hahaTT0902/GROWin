@@ -1,58 +1,38 @@
-# 🚣‍♀️ GROWin: AI Rowing Technique Analysis System
+# GROWin
 
-**GROWin** is an AI-powered system that recognizes and analyzes rowing movements in real time.  
-It tracks and visualizes key motion metrics — such as leg, back, and hand movement phases — and provides feedback on rowing form and timing.
+GROWin is an AI-based rowing technique analysis system that extracts and analyzes rowing mechanics from video input.
 
-> ⚠️ **Work In Progress**: This project is actively under development. Core functions are working, but features are being refined and expanded. Stay tuned!
+The system identifies rowing phases, tracks joint kinematics, and evaluates coordination between legs, trunk, and arms for technique analysis and performance feedback.
 
----
+This project is under active development.
 
-## 🧠 Features
+## Features
 
-- ✅ Real-time rowing phase recognition (Drive / Recovery)
-- ✅ Angle detection and visualization (e.g., knee, hip, elbow)
-- ✅ Leg / back / hand speed graphs over time
-- 🔄 Automatic detection of stroke transitions
-- 📊 Minimum and maximum angle tracking per stroke
-- 🧪 Feedback for inconsistent or improper motion
-- 📹 Video input via webcam or pre-recorded files
+- Rowing phase detection (Drive / Recovery)
+- Joint angle tracking (knee, hip, elbow)
+- Segment velocity analysis (legs, back, hands)
+- Stroke-level segmentation and statistics
+- Webcam and recorded video input support
 
----
+## Tech Stack
 
-## 🛠️ Tech Stack
+- Python
+- OpenCV
+- MediaPipe Pose
+- NumPy
+- Matplotlib
 
-- Python + OpenCV
-- MediaPipe Pose Estimation
-- Matplotlib (for graphing)
-- NumPy, CSV (for data handling)
+## Status
 
----
+Functional prototype.  
+Currently optimized for indoor rowing environments.  
+Outdoor rowing support is experimental.
 
+## Website
 
+https://hydro-drive.com/
 
-## 🚧 To Do
+## Contributions
 
-- [ ] Stroke count & average rhythm tracking  
-- [ ] Web dashboard / GUI output  
-- [ ] Integrate with rowing machine sensors  
-- [ ] Auto feedback generation (e.g. "Lift your elbows earlier")
-
----
-
-## 📸 Sample Output
-
-_Still under progress. Demo visuals coming soon..._
-
----
-
-## 🤝 Contributing
-
-This is a personal WIP project. If you're interested in AI + biomechanics, feel free to open an issue or suggest improvements.
-
-
-
-> 👷‍♂️ **Note**: The system is currently being optimized for indoor rowing analysis. Outdoor rowing support is experimental.
-
-
----
-
+This is a personal research and engineering project.  
+Technical feedback and discussion are welcome.
