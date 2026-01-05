@@ -14,6 +14,8 @@ This project is under active development.
 - Stroke-level segmentation and statistics
 - Webcam and recorded video input support
 
+<img width="1138" height="640" alt="image" src="https://github.com/user-attachments/assets/b8a25bb2-caea-4e23-a436-6c1e3c5ab4f2" />
+
 ## Tech Stack
 
 - Python
