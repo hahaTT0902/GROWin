@@ -6,6 +6,17 @@ The system identifies rowing phases, tracks joint kinematics, and evaluates coor
 
 This project is under active development.
 
+## Demo
+
+### Indoor Rowing Machine Analysis
+![12月30日 (4)(1)](https://github.com/user-attachments/assets/76647e75-3172-4630-8851-02c46bdbd62a)
+
+
+### On-Water Rowing and Hardware Setup
+![12月30日 (3)](https://github.com/user-attachments/assets/955144c1-0135-431f-a67a-53da5287058e)
+![12月31日(2)](https://github.com/user-attachments/assets/5f3ec397-9fdb-4bdd-8f6b-7c7095152dfb)
+![12月30日 (5)(1)](https://github.com/user-attachments/assets/2f84c73b-f926-42b0-a6d7-d952279def1c)
+
 ## Features
 
 - Rowing phase detection (Drive / Recovery)
@@ -13,8 +24,6 @@ This project is under active development.
 - Segment velocity analysis (legs, back, hands)
 - Stroke-level segmentation and statistics
 - Webcam and recorded video input support
-
-<img width="1138" height="640" alt="image" src="https://github.com/user-attachments/assets/b8a25bb2-caea-4e23-a436-6c1e3c5ab4f2" />
 
 ## Tech Stack
 
