@@ -1,4 +1,6 @@
 opencv-python
 numpy
 matplotlib
-mediapipe
+mediapipe>=0.10.0
+# For legacy behavior you can pin to an older release:
+# mediapipe==0.8.10

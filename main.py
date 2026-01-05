@@ -11,10 +11,18 @@ from utils.video_stream import setup_video_capture, release_video_capture
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-import mediapipe as mp
-mp_pose = mp.solutions.pose
-pose = mp_pose.Pose(static_image_mode=False, min_detection_confidence=0.5)
-mp_drawing = mp.solutions.drawing_utils
+from utils.pose_detector import PoseDetector
+
+# Instantiate a Task-native pose landmarker. Require a model at 'models/pose_landmarker.task'
+MODEL_PATH = os.path.join(os.path.dirname(__file__), 'models', 'pose_landmarker.task')
+if not os.path.exists(MODEL_PATH):
+    raise RuntimeError(
+        f"Required model not found: {MODEL_PATH}\nPlease download a MediaPipe `pose_landmarker.task` model and place it there. See README.md for details."
+    )
+pose_detector = PoseDetector(model_path=MODEL_PATH, running_mode='VIDEO')
+
+# No legacy drawing utils used; use `pose_detector.draw_landmarks` for visualization
+mp_drawing = None
 
 skeleton_pairs = [
     (11, 13), (13, 15),  # 左臂
@@ -26,7 +34,6 @@ skeleton_pairs = [
     (23, 24)             # 骨盆
 ]
 
-# 添加平滑函数
 def smooth_append(series, value, alpha=0.3):
     if not series:
         series.append(value)
@@ -154,11 +161,14 @@ def main(data_callback=None, running_flag=lambda: True):
     if not cap.isOpened():
         print("Camera failed to open.")
         return
+    else:
+        print("Camera opened successfully; starting processing loop.")
 
     tracker = StrokeStateTracker()
     prev_hip = prev_shoulder = prev_wrist = None
     start_time = time.time()
     frame_count = 0
+    last_print = start_time
 
     # 统一日志文件
     log_f = open('log.csv', 'w', newline='')
@@ -185,24 +195,80 @@ def main(data_callback=None, running_flag=lambda: True):
     while cap.isOpened() and running_flag():
         ret, frame = cap.read()
         if not ret:
-            break
+            print('Frame read failed or end of stream; attempting to reconnect...')
+            # Try to reconnect a few times
+            reconnected = False
+            try:
+                cap.release()
+            except Exception:
+                pass
+            for attempt in range(3):
+                time.sleep(0.5)
+                cap = setup_video_capture()
+                if cap and cap.isOpened():
+                    r, f = cap.read()
+                    if r and f is not None and getattr(f, 'size', 0) > 0:
+                        ret, frame = r, f
+                        reconnected = True
+                        print(f'Reconnected to video source on attempt {attempt+1}')
+                        break
+            if not reconnected:
+                # Probe for any working device
+                cap = setup_video_capture(source=None, max_probe_index=int(os.getenv('VIDEO_PROBE_MAX', 5)))
+                if not cap:
+                    print('Reconnection/probe failed; exiting loop.')
+                    break
+                # try one read
+                r, f = cap.read()
+                if not r or f is None or getattr(f, 'size', 0) == 0:
+                    print('Frame read still failing after probe; exiting loop.')
+                    break
+                ret, frame = r, f
+        frame_count += 1
+        # periodic progress print every 100 frames or every 5 seconds
+        if frame_count % 100 == 0 or (time.time() - last_print) > 5:
+            print(f'Processed frames: {frame_count}')
+            last_print = time.time()
 
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        result = pose.process(rgb_frame)
+        # Use compatibility detector
+        timestamp_ms = int((time.time() - start_time) * 1000)
+        result = pose_detector.process(frame, timestamp_ms=timestamp_ms)
         joints = {}
         stroke_phase = stroke_count = spm = 0
         angles = {}
         switch = None
 
-        if result.pose_landmarks:
-            mp_drawing.draw_landmarks(frame, result.pose_landmarks, mp_pose.POSE_CONNECTIONS)
-            for idx, landmark in enumerate(result.pose_landmarks.landmark):
+        if result and getattr(result, 'pose_landmarks', None):
+            # Prefer the legacy drawing util when available
+            if mp_drawing is not None and hasattr(mp_drawing, 'draw_landmarks'):
+                try:
+                    mp_drawing.draw_landmarks(frame, result.pose_landmarks, None)
+                except Exception:
+                    # fallback to simple drawing
+                    pose_detector.draw_landmarks(frame, result)
+            else:
+                pose_detector.draw_landmarks(frame, result)
+
+            # Normalize landmark access: Tasks returns a list of poses (each a list of landmarks).
+            landmark_list = []
+            if hasattr(result.pose_landmarks, 'landmark'):
+                # legacy-like structure
+                landmark_list = result.pose_landmarks.landmark
+            elif isinstance(result.pose_landmarks, (list, tuple)):
+                # take first detected pose
+                landmark_list = result.pose_landmarks[0] if len(result.pose_landmarks) > 0 else []
+
+            for idx, landmark in enumerate(landmark_list):
+                # landmark.x/y are normalized
                 joints[idx] = (int(landmark.x * frame.shape[1]), int(landmark.y * frame.shape[0]))
-                joints[f"{idx}_vis"] = landmark.visibility
+                # attempt to find visibility/score
+                vis = getattr(landmark, 'visibility', None)
+                if vis is None:
+                    vis = getattr(landmark, 'score', 1.0)
+                joints[f"{idx}_vis"] = vis
 
             angles = get_relevant_angles(joints)
 
-            # 骨架高亮与角度显示
             for name, joint_ids in [
                 ('back_angle', (12, 24, 26)),
                 ('leg_drive_angle', (24, 26, 28)),
@@ -250,12 +316,12 @@ def main(data_callback=None, running_flag=lambda: True):
 
             log_writer.writerow([
                 t, stroke_phase, spm, switch if switch is not None else '',
-                *[result.pose_landmarks.landmark[idx].x for idx in joint_indices],
-                *[result.pose_landmarks.landmark[idx].y for idx in joint_indices],
-                *[result.pose_landmarks.landmark[idx].z for idx in joint_indices],
+                *[landmark_list[idx].x for idx in joint_indices],
+                *[landmark_list[idx].y for idx in joint_indices],
+                *[landmark_list[idx].z for idx in joint_indices],
                 *[joints[b][0] - joints[a][0] for a, b in skeleton_pairs],
                 *[joints[b][1] - joints[a][1] for a, b in skeleton_pairs],
-                *[result.pose_landmarks.landmark[b].z - result.pose_landmarks.landmark[a].z for a, b in skeleton_pairs],
+                *[landmark_list[b].z - landmark_list[a].z for a, b in skeleton_pairs],
                 leg_move, back_move, arm_move,
                 angles.get('leg_drive_angle', 0),
                 angles.get('back_angle', 0),
@@ -279,7 +345,6 @@ def main(data_callback=None, running_flag=lambda: True):
                     feedback_msgs.append(msg)
                 last_feedback_msgs = feedback_msgs
 
-        # 状态信息和提示（仅用于frame传递给GUI，不做窗口显示）
         cv2.putText(frame, f"Phase: {stroke_phase}", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 2.2, (0, 255, 255), 6)
         cv2.putText(frame, f"Strokes: {stroke_count}", (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 2.2, (255, 255, 255), 6)
         cv2.putText(frame, f"SPM: {spm:.1f}", (10, 220), cv2.FONT_HERSHEY_SIMPLEX, 2.2, (0, 255, 0), 6)
@@ -288,11 +353,8 @@ def main(data_callback=None, running_flag=lambda: True):
                 color = (0, 0, 255) if ("Too" in msg or "Unknown" in msg) else (0, 255, 0)
                 cv2.putText(frame, msg, (10, 400 + i*80), cv2.FONT_HERSHEY_SIMPLEX, 2.5, color, 6)
 
-        # 推送数据到GUI
-        # 保证toggle_angles始终有内容：无切换点时用当前帧角度填充
         gui_toggle_angles = list(toggle_angles)
         if not gui_toggle_angles and angles:
-            # 默认用当前帧，类型用当前状态
             gui_toggle_angles = [
                 (t, "Drive→Recovery" if stroke_phase == "Recovery" else "Recovery→Drive", angles.copy())
             ]
@@ -309,6 +371,6 @@ def main(data_callback=None, running_flag=lambda: True):
 
     release_video_capture(cap)
     log_f.close()
-    print("\n程序结束")
+    print(f"\n程序结束 — total frames processed: {frame_count}")
 
     # 不要直接运行 main.py !，只作为模块被GUI调用!

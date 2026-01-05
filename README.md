@@ -29,6 +29,92 @@ This project is under active development.
 - Python
 - OpenCV
 - MediaPipe Pose
+
+## Troubleshooting ⚠️
+
+If you see an error like:
+
+```
+AttributeError: module 'mediapipe' has no attribute 'solutions'
+```
+
+This means the installed MediaPipe package is a newer release that exposes the Tasks API (`mediapipe.tasks`) instead of the legacy `mediapipe.solutions` API used by this project.
+
+Fix options:
+
+1. Install a compatible MediaPipe version (recommended):
+
+```bash
+pip install mediapipe==0.8.10
+```
+
+2. Or update the project to use the new MediaPipe Tasks API (advanced).
+
+---
+
+Using the MediaPipe Tasks API (latest releases)
+
+This project is fully migrated to the MediaPipe Tasks API and **requires**
+MediaPipe >= 0.10 and a `pose_landmarker.task` model file. The project no longer
+relies on `mediapipe.solutions`.
+
+Steps to run with the Tasks API:
+
+1. Install MediaPipe (>= 0.10):
+
+```bash
+pip install "mediapipe>=0.10.0"
+```
+
+2. Download an official `pose_landmarker.task` model and place it at:
+
+```
+models/pose_landmarker.task
+```
+
+Alternatively use the helper script if you have a direct download URL:
+
+```bash
+python scripts/download_pose_model.py <model_url>
+```
+
+3. Run the GUI or `main.py` (it expects the model at `models/pose_landmarker.task`):
+
+```bash
+python gui.py
+```
+
+Notes:
+- The project now uses the Tasks `PoseLandmarker` model for better accuracy and
+  tracking. If you prefer the old behavior you can still pin an older MediaPipe
+  release (e.g., `mediapipe==0.8.10`) in `requirements.txt`.
+- If you hit import errors, ensure `mediapipe` is installed in the same Python
+  environment used to run the project.
+
+
+Camera notes (OBS virtual camera)
+
+- If you use a virtual camera (for example OBS Virtual Camera), it may not be device index `0`. To find which index corresponds to your virtual camera, run:
+
+```bash
+python scripts/list_cameras.py 10
+```
+
+- You can force which source to use by setting environment variables before launching the GUI:
+
+```bash
+# use camera index 1
+set VIDEO_SOURCE=1
+python gui.py
+
+# or use a video file
+set VIDEO_SOURCE=path\to\video.mp4
+python gui.py
+```
+
+- If the app opens the camera but frames are not received, make sure the virtual camera is started in OBS (`Start Virtual Camera`) and that no other app is exclusively locking it. The app attempts backend fallbacks and will probe indices automatically if the configured source doesn't return frames.
+
+
 - NumPy
 - Matplotlib
 

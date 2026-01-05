@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 class VideoWidget(QLabel):
     def __init__(self):
         super().__init__()
-        self.setScaledContents(False)  # 保持比例，不自动拉伸
+        self.setScaledContents(False) 
         self.setMaximumWidth(1000)
         self.setMaximumHeight(800)
         self.setMinimumHeight(240)
@@ -21,7 +21,6 @@ class VideoWidget(QLabel):
         bytes_per_line = ch * w
         qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
         pixmap = QPixmap.fromImage(qimg)
-        # 按控件大小缩放，保持比例
         pixmap = pixmap.scaled(self.size(), aspectRatioMode=Qt.KeepAspectRatio, transformMode=Qt.SmoothTransformation)
         self.setPixmap(pixmap)
 
@@ -42,7 +41,6 @@ class PlotWidget(FigureCanvas):
 
     def update_plot(self, x, ys_list, phase_spans=None, phases=None):
         self.ax.clear()
-        # 绘制阶段背景色
         if x and phase_spans:
             t_min = x[0]
             t_max = x[-1]
@@ -51,7 +49,6 @@ class PlotWidget(FigureCanvas):
                 current_bg = "#ffe6cc" if phases[-1] == "Drive" else "#e6f2ff"
             last_span_time = t_min
             for span_time, phase in phase_spans:
-                # 只绘制在当前区间内的区块
                 if span_time < t_min:
                     last_span_time = span_time
                     continue
@@ -63,10 +60,8 @@ class PlotWidget(FigureCanvas):
                 if draw_start < draw_end:
                     self.ax.axvspan(draw_start, draw_end, facecolor=color, alpha=0.3, edgecolor='none')
                 last_span_time = span_time
-            # 最后一个区块只画到t_max
             if last_span_time < t_max:
                 self.ax.axvspan(last_span_time, t_max, facecolor=current_bg, alpha=0.3, edgecolor='none')
-        # 绘制曲线
         for line, y in zip(self.lines, ys_list):
             line, = self.ax.plot(x, y, color=line.get_color(), label=line.get_label())
         self.ax.set_title(self.ax.get_title())
@@ -96,10 +91,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("AiRowing 多视图GUI")
-        # 检测屏幕分辨率，设置缩放因子
         screen = QApplication.primaryScreen()
         size = screen.size()
-        # 以1920x1080为基准
         base_w, base_h = 1920, 1080
         scale_w = size.width() / base_w
         scale_h = size.height() / base_h
@@ -108,14 +101,12 @@ class MainWindow(QMainWindow):
         self.video_widget = VideoWidget()
         self.metrics_widget = MetricsWidget()
         self.suggestion_label = QLabel("")
-        # 字体和控件高度自适应缩放
         sug_font_size = int(15 * self._ui_scale)
         self.suggestion_label.setStyleSheet(
             f"font-size: {sug_font_size}px; color: #2a7c2a; background: #f7f9fa; border-radius: 8px; padding: 8px;"
         )
         self.suggestion_label.setMinimumHeight(int(48 * self._ui_scale))
 
-        # 左右布局
         main_hbox = QHBoxLayout()
         left_vbox = QVBoxLayout()
         left_vbox.addWidget(self.video_widget, 2)
@@ -145,10 +136,8 @@ class MainWindow(QMainWindow):
         central.setLayout(main_hbox)
         self.setCentralWidget(central)
 
-        # 设置窗口初始大小为基准的0.8倍缩放
         self.resize(int(base_w * self._ui_scale * 0.8), int(base_h * self._ui_scale * 0.8))
 
-        # 启动后台线程
         self.worker = WorkerThread()
         self.worker.data_signal.connect(self.update_all)
         self.worker.start()
@@ -167,7 +156,6 @@ class MainWindow(QMainWindow):
         self._update_metrics_and_suggestion()
 
     def _refresh_plots(self):
-        # 曲线区块刷新
         data = self._latest_data
         has_metrics = bool(self._last_metrics['finish'] or self._last_metrics['catch'])
         if data is None:
@@ -192,7 +180,6 @@ class MainWindow(QMainWindow):
         else:
             x10, leg10, back10, arm10 = [], [], [], []
         self.plot1.update_plot(x10, [leg10, back10, arm10], phase_spans=phase_spans, phases=phases)
-        # 角度数据
         if data['toggle_angles']:
             filtered = [a for a in data['toggle_angles'] if a[0] >= t_min]
             if filtered:
@@ -205,12 +192,10 @@ class MainWindow(QMainWindow):
                 self.plot2.update_plot([], [[], [], []], phase_spans=phase_spans, phases=phases)
         else:
             self.plot2.update_plot([], [[], [], []], phase_spans=phase_spans, phases=phases)
-        # 指标条和建议区块刷新
         self._update_metrics_and_suggestion()
 
     def _update_metrics_and_suggestion(self):
         data = self._latest_data
-        # 默认用上一次有效数据
         finish_metrics = self._last_metrics['finish']
         catch_metrics = self._last_metrics['catch']
         suggestions = self._last_suggestions
@@ -238,13 +223,11 @@ class MainWindow(QMainWindow):
                         ("背部角度", angles.get('back_angle', 0), 20, 45, "°"),
                         ("手臂角度", angles.get('arm_angle', 0), 160, 180, "°")
                     ]
-            # 只有有新数据时才刷新
             if new_finish or new_catch:
                 finish_metrics = new_finish
                 catch_metrics = new_catch
                 self._last_metrics['finish'] = finish_metrics
                 self._last_metrics['catch'] = catch_metrics
-                # 生成新建议
                 all_metrics = []
                 if finish_metrics:
                     all_metrics += [("出水", *m) for m in finish_metrics]
@@ -272,7 +255,6 @@ class MainWindow(QMainWindow):
                     new_suggestions = "\n".join(sug_list)
                 self._last_suggestions = new_suggestions
                 suggestions = new_suggestions
-        # 刷新显示（无新数据时保持上一次内容）
         if finish_metrics or catch_metrics:
             self.metrics_widget.update_metrics(finish_metrics, catch_metrics)
         else:
@@ -321,13 +303,11 @@ class MetricsWidget(QWidget):
         group.addLayout(hbox)
 
     def update_metrics(self, finish_metrics, catch_metrics):
-        # 只有有内容且数据变化时才刷新，否则保持原有内容
         if not hasattr(self, '_last_finish'):
             self._last_finish = []
             self._last_catch = []
         if not finish_metrics and not catch_metrics:
             return
-        # 判断数据是否变化
         if finish_metrics == self._last_finish and catch_metrics == self._last_catch:
             return
         self._last_finish = finish_metrics.copy()
