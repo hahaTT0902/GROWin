@@ -39,15 +39,37 @@ class PoseDetector:
             )
 
         try:
+            import mediapipe as mp
             from mediapipe.tasks.python.vision import (
                 PoseLandmarker, PoseLandmarkerOptions, RunningMode
             )
             from mediapipe.tasks.python.core import base_options as mp_base_options
             import importlib
-            mp_image_mod = importlib.import_module('mediapipe.tasks.python.vision.core.image')
+
+            # MediaPipe image classes moved between versions; prefer public API first.
+            if hasattr(mp, 'Image') and hasattr(mp, 'ImageFormat'):
+                image_cls = mp.Image
+                image_format_cls = mp.ImageFormat
+            else:
+                mp_image_mod = None
+                for module_name in (
+                    'mediapipe.tasks.python.vision.core.image',
+                    'mediapipe.python._framework_bindings.image',
+                ):
+                    try:
+                        mp_image_mod = importlib.import_module(module_name)
+                        break
+                    except Exception:
+                        continue
+
+                if mp_image_mod is None:
+                    raise ImportError('Unable to find MediaPipe Image/ImageFormat classes in this version.')
+
+                image_cls = mp_image_mod.Image
+                image_format_cls = mp_image_mod.ImageFormat
         except Exception as e:
             raise RuntimeError(
-                "Failed to import MediaPipe Tasks API. Ensure you have mediapipe>=0.10 installed."
+                f"Failed to import MediaPipe Tasks API. Ensure you have mediapipe>=0.10 installed. Details: {e}"
             ) from e
 
         base_opts = mp_base_options.BaseOptions(model_asset_path=model_path)
@@ -62,8 +84,8 @@ class PoseDetector:
         )
 
         self.pose_landmarker = PoseLandmarker.create_from_options(opts)
-        self.Image = mp_image_mod.Image
-        self.ImageFormat = mp_image_mod.ImageFormat
+        self.Image = image_cls
+        self.ImageFormat = image_format_cls
         self.mode = 'tasks'
         self.running_mode = rm
 

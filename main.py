@@ -76,20 +76,25 @@ class StrokeStateTracker:
         self.stable_counter = 0
         self.stable_required = 3  # 连续帧数确认切换
         self.pending_state = None
+        self.motion_threshold = 2.0
 
-    def update(self, wrist_x, current_time, angles):
-        if self.previous_wrist_x is None:
-            self.previous_wrist_x = wrist_x
+    def update(self, wrist_x, current_time, angles, hip_x=None):
+        driver_x = wrist_x if wrist_x is not None else hip_x
+        if driver_x is None:
             return self.state, self.stroke_count, 0.0, None
 
-        dx = wrist_x - self.previous_wrist_x
-        self.previous_wrist_x = wrist_x
+        if self.previous_wrist_x is None:
+            self.previous_wrist_x = driver_x
+            return self.state, self.stroke_count, 0.0, None
+
+        dx = driver_x - self.previous_wrist_x
+        self.previous_wrist_x = driver_x
 
         # 判断新状态
         new_state = self.state
-        if dx < -5:
+        if dx < -self.motion_threshold:
             candidate_state = "Drive"
-        elif dx > 5:
+        elif dx > self.motion_threshold:
             candidate_state = "Recovery"
         else:
             candidate_state = self.state
@@ -103,7 +108,8 @@ class StrokeStateTracker:
                 self.pending_state = candidate_state
                 self.stable_counter = 1
 
-            if self.stable_counter >= self.stable_required:
+            required_count = 1 if self.state == "Unknown" else self.stable_required
+            if self.stable_counter >= required_count:
                 new_state = candidate_state
                 self.stable_counter = 0
                 self.pending_state = None
@@ -156,7 +162,7 @@ def get_joint_if_visible(joints, idx, threshold=0.5):
     return joints[idx] if vis > threshold else None
 
 # 主程序
-def main(data_callback=None, running_flag=lambda: True):
+def main(data_callback=None, running_flag=lambda: True, get_mirror=lambda: False):
     cap = setup_video_capture()
     if not cap.isOpened():
         print("Camera failed to open.")
@@ -230,6 +236,10 @@ def main(data_callback=None, running_flag=lambda: True):
             print(f'Processed frames: {frame_count}')
             last_print = time.time()
 
+        # Mirror frame before algorithm if requested
+        if callable(get_mirror) and get_mirror():
+            frame = cv2.flip(frame, 1)
+
         # Use compatibility detector
         timestamp_ms = int((time.time() - start_time) * 1000)
         result = pose_detector.process(frame, timestamp_ms=timestamp_ms)
@@ -302,12 +312,15 @@ def main(data_callback=None, running_flag=lambda: True):
             smooth_append(back_series, back_move)
             smooth_append(arm_series, arm_move)
 
-            if wrist is not None:
-                wrist_x = wrist[0]
-            else:
-                wrist_x = 0
+            wrist_x = wrist[0] if wrist is not None else None
+            hip_x = hip[0] if hip is not None else None
 
-            stroke_phase, stroke_count, spm, switch = tracker.update(wrist_x, t, angles)
+            stroke_phase, stroke_count, spm, switch = tracker.update(
+                wrist_x,
+                t,
+                angles,
+                hip_x=hip_x,
+            )
             phase_labels.append(stroke_phase)
             if len(phase_spans) == 0 or phase_spans[-1][1] != stroke_phase:
                 phase_spans.append((t, stroke_phase))
@@ -345,13 +358,7 @@ def main(data_callback=None, running_flag=lambda: True):
                     feedback_msgs.append(msg)
                 last_feedback_msgs = feedback_msgs
 
-        cv2.putText(frame, f"Phase: {stroke_phase}", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 2.2, (0, 255, 255), 6)
-        cv2.putText(frame, f"Strokes: {stroke_count}", (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 2.2, (255, 255, 255), 6)
-        cv2.putText(frame, f"SPM: {spm:.1f}", (10, 220), cv2.FONT_HERSHEY_SIMPLEX, 2.2, (0, 255, 0), 6)
-        if last_feedback_msgs:
-            for i, msg in enumerate(last_feedback_msgs):
-                color = (0, 0, 255) if ("Too" in msg or "Unknown" in msg) else (0, 255, 0)
-                cv2.putText(frame, msg, (10, 400 + i*80), cv2.FONT_HERSHEY_SIMPLEX, 2.5, color, 6)
+        # Text overlays removed — data sent via callback
 
         gui_toggle_angles = list(toggle_angles)
         if not gui_toggle_angles and angles:
@@ -366,7 +373,13 @@ def main(data_callback=None, running_flag=lambda: True):
                 'back_series': list(back_series),
                 'arm_series': list(arm_series),
                 'phase_spans': list(phase_spans),
+                'phases': list(phase_labels),
                 'toggle_angles': gui_toggle_angles,
+                'stroke_phase': stroke_phase,
+                'stroke_count': stroke_count,
+                'spm': spm,
+                'feedback_msgs': list(last_feedback_msgs),
+                'angles': dict(angles),
             })
 
     release_video_capture(cap)
