@@ -1,6 +1,7 @@
 import sys
+import time
 import cv2
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QFrame, QSplitter, QScrollArea, QSizePolicy
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QFrame, QSplitter, QScrollArea, QSizePolicy, QFileDialog, QMessageBox
 from PyQt5.QtCore import QTimer, QThread, pyqtSignal, Qt
 from PyQt5.QtGui import QImage, QPixmap
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -40,6 +41,8 @@ TEXTS = {
         'plot2_title': '阶段切换角度', 'plot2_x': '时间 (秒)', 'plot2_y': '角度 (°)',
         'p1_l1': '臀部', 'p1_l2': '背部', 'p1_l3': '手臂',
         'p2_l1': '腿驱角度', 'p2_l2': '背部角度', 'p2_l3': '手臂角度',
+        'btn_stop': '停止', 'btn_pause': '暂停',
+        'btn_resume': '继续', 'btn_save': '保存',
     },
     'en': {
         'window_title': 'AiRowing Multi-View GUI',
@@ -61,6 +64,8 @@ TEXTS = {
         'plot2_title': 'Angle at Phase Switch', 'plot2_x': 'Time (s)', 'plot2_y': 'Angle (°)',
         'p1_l1': 'Buttocks', 'p1_l2': 'Back', 'p1_l3': 'Arms',
         'p2_l1': 'Leg Drive', 'p2_l2': 'Back Angle', 'p2_l3': 'Arm Angle',
+        'btn_stop': 'Stop', 'btn_pause': 'Pause',
+        'btn_resume': 'Resume', 'btn_save': 'Save',
     },
 }
 
@@ -111,12 +116,17 @@ class PlotWidget(FigureCanvas):
         self.ax.set_xlabel(self._xlabel, color='#b9d8f2')
         self.ax.set_ylabel(self._ylabel, color='#b9d8f2')
 
-    def update_plot(self, x, ys_list, phase_spans=None, phases=None):
+    def update_plot(self, x, ys_list, phase_spans=None, phases=None, view_range=None):
         self.ax.clear()
         self._style_axes()
-        if x and phase_spans:
+        if view_range is not None:
+            t_min, t_max = view_range
+        elif x:
             t_min = x[0]
             t_max = x[-1]
+        else:
+            t_min, t_max = 0, 10
+        if phase_spans:
             current_bg = "#e6f2ff"
             if phases:
                 current_bg = "#ffe6cc" if phases[-1] == "Drive" else "#e6f2ff"
@@ -135,14 +145,23 @@ class PlotWidget(FigureCanvas):
                 last_span_time = span_time
             if last_span_time < t_max:
                 self.ax.axvspan(last_span_time, t_max, facecolor=current_bg, alpha=0.3, edgecolor='none')
+        y_values = []
         for line, y in zip(self.lines, ys_list):
             line, = self.ax.plot(x, y, color=line.get_color(), label=line.get_label())
+            y_values.extend(v for v in y if v is not None)
         legend = self.ax.legend(facecolor='#101e31', edgecolor='#365676')
         if legend is not None:
             for text in legend.get_texts():
                 text.set_color('#b9d8f2')
-        self.ax.relim()
-        self.ax.autoscale_view()
+        self.ax.set_xlim(t_min, max(t_max, t_min + 1e-6))
+        if y_values:
+            y_min = min(y_values)
+            y_max = max(y_values)
+            if y_min == y_max:
+                pad = max(1.0, abs(y_min) * 0.15)
+            else:
+                pad = max((y_max - y_min) * 0.15, 0.5)
+            self.ax.set_ylim(y_min - pad, y_max + pad)
         self.draw()
 
     def set_labels(self, title, xlabel, ylabel, line_labels=None):
@@ -182,11 +201,11 @@ class InfoPanel(QWidget):
         self.feedback_label.setStyleSheet("font-size:18px; color:#f0c060;")
         self.feedback_label.setWordWrap(True)
         self.feedback_label.setMinimumHeight(60)
+        self.feedback_label.hide()
 
         layout.addWidget(self.phase_label)
         layout.addWidget(self.strokes_label)
         layout.addWidget(self.spm_label)
-        layout.addWidget(self.feedback_label)
         layout.addStretch(1)
         self._update_static_text()
 
@@ -301,9 +320,12 @@ class PhaseIndicator(QWidget):
 # ---- 后台线程：运行 main.py 的主循环 ----
 class WorkerThread(QThread):
     data_signal = pyqtSignal(dict)
+    finished_signal = pyqtSignal()
+
     def __init__(self):
         super().__init__()
         self._running = True
+        self._paused = False
         self._mirror = False
 
     def set_mirror(self, on):
@@ -312,10 +334,25 @@ class WorkerThread(QThread):
     def run(self):
         from main import main
         main(
-            data_callback=self.data_signal.emit,
+            data_callback=self._on_data,
             running_flag=lambda: self._running,
             get_mirror=lambda: self._mirror,
         )
+        self.finished_signal.emit()
+
+    def _on_data(self, data):
+        if not self._paused:
+            self.data_signal.emit(data)
+
+    def pause(self):
+        self._paused = True
+
+    def resume(self):
+        self._paused = False
+
+    @property
+    def is_paused(self):
+        return self._paused
 
     def stop(self):
         self._running = False
@@ -353,9 +390,21 @@ class MainWindow(QMainWindow):
         self.side_left_btn.clicked.connect(lambda: self._set_camera_side('left'))
         self.side_right_btn.clicked.connect(lambda: self._set_camera_side('right'))
 
+        # ---- 控制按钮 ----
+        self.stop_btn = QPushButton(T['btn_stop'])
+        self.pause_btn = QPushButton(T['btn_pause'])
+        self.save_btn = QPushButton(T['btn_save'])
+
+        self.stop_btn.clicked.connect(self._on_stop)
+        self.pause_btn.clicked.connect(self._on_pause)
+        self.save_btn.clicked.connect(self._on_save)
+
         top_bar = QHBoxLayout()
         top_bar.setSpacing(8)
         top_bar.addWidget(self.lang_btn)
+        top_bar.addWidget(self.pause_btn)
+        top_bar.addWidget(self.stop_btn)
+        top_bar.addWidget(self.save_btn)
         top_bar.addStretch(1)
         top_bar.addWidget(self.side_left_btn)
         top_bar.addWidget(self.side_right_btn)
@@ -429,6 +478,8 @@ class MainWindow(QMainWindow):
         self._latest_data = None
         self._last_metrics = {'finish': [], 'catch': []}
         self._last_suggestions = T['no_suggestions']
+        self._status_update_interval = 0.35
+        self._last_status_update_time = 0.0
         self.timer = QTimer(self)
         self.timer.setInterval(100)
         self.timer.timeout.connect(self._refresh_plots)
@@ -497,6 +548,12 @@ class MainWindow(QMainWindow):
         self.lang_btn.setText(T['lang_btn'])
         self.side_left_btn.setText(T['pc_left'])
         self.side_right_btn.setText(T['pc_right'])
+        self.stop_btn.setText(T['btn_stop'])
+        self.save_btn.setText(T['btn_save'])
+        if self.worker.is_paused:
+            self.pause_btn.setText(T['btn_resume'])
+        else:
+            self.pause_btn.setText(T['btn_pause'])
         self.info_panel.set_language(self._lang)
         self.phase_indicator.set_language(self._lang)
         self.plot1.set_labels(T['plot1_title'], T['plot1_x'], T['plot1_y'],
@@ -514,17 +571,50 @@ class MainWindow(QMainWindow):
         self.mirror_on = (self.camera_side == 'left')
         self.worker.set_mirror(self.mirror_on)
 
+    # ---- 控制按钮逻辑 ----
+    def _on_stop(self):
+        self.close()
+
+    def _on_pause(self):
+        T = TEXTS[self._lang]
+        if self.worker.is_paused:
+            self.worker.resume()
+            self.pause_btn.setText(T['btn_pause'])
+        else:
+            self.worker.pause()
+            self.pause_btn.setText(T['btn_resume'])
+
+    def _on_save(self):
+        import os, shutil
+        T = TEXTS[self._lang]
+        save_dir = QFileDialog.getExistingDirectory(self, T['btn_save'])
+        if not save_dir:
+            return
+        # 保存截图
+        if self._latest_data is not None and 'frame' in self._latest_data:
+            frame = self._latest_data['frame']
+            path = os.path.join(save_dir, 'screenshot.png')
+            cv2.imwrite(path, frame)
+        # 保存 log.csv
+        log_src = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'log.csv')
+        if os.path.exists(log_src):
+            shutil.copy2(log_src, os.path.join(save_dir, 'log.csv'))
+
     def update_all(self, data):
         self.video_widget.update_frame(data['frame'])
-        self.info_panel.update_info(data)
         self._latest_data = data
-        phase_list = data.get('phases', [])
-        self.phase_indicator.set_phase(phase_list[-1] if phase_list else 'Unknown')
-        self._update_metrics_and_suggestion()
+        now = time.monotonic()
+        if now - self._last_status_update_time >= self._status_update_interval:
+            self.info_panel.update_info(data)
+            phase_list = data.get('phases', [])
+            self.phase_indicator.set_phase(phase_list[-1] if phase_list else 'Unknown')
+            self._update_metrics_and_suggestion()
+            self._last_status_update_time = now
 
     def _refresh_plots(self):
         data = self._latest_data
         has_metrics = bool(self._last_metrics['finish'] or self._last_metrics['catch'])
+        window_seconds = 10
         if data is None:
             if not has_metrics:
                 self.metrics_widget.show_nodata(self._lang)
@@ -538,15 +628,17 @@ class MainWindow(QMainWindow):
         phases = data.get('phases', None)
         if x:
             t_now = x[-1]
-            t_min = max(x[0], t_now - 10)
+            t_min = max(x[0], t_now - window_seconds)
             indices = [i for i, t in enumerate(x) if t >= t_min]
             x10 = [x[i] for i in indices]
             leg10 = [data['leg_series'][i] for i in indices]
             back10 = [data['back_series'][i] for i in indices]
             arm10 = [data['arm_series'][i] for i in indices]
         else:
+            t_now = window_seconds
+            t_min = 0
             x10, leg10, back10, arm10 = [], [], [], []
-        self.plot1.update_plot(x10, [leg10, back10, arm10], phase_spans=phase_spans, phases=phases)
+        self.plot1.update_plot(x10, [leg10, back10, arm10], phase_spans=phase_spans, phases=phases, view_range=(t_min, t_now))
         if data['toggle_angles']:
             filtered = [a for a in data['toggle_angles'] if a[0] >= t_min]
             if filtered:
@@ -554,11 +646,11 @@ class MainWindow(QMainWindow):
                 leg_angle = [a[2].get('leg_drive_angle', 0) for a in filtered]
                 back_angle = [a[2].get('back_angle', 0) for a in filtered]
                 arm_angle = [a[2].get('arm_angle', 0) for a in filtered]
-                self.plot2.update_plot(times, [leg_angle, back_angle, arm_angle], phase_spans=phase_spans, phases=phases)
+                self.plot2.update_plot(times, [leg_angle, back_angle, arm_angle], phase_spans=phase_spans, phases=phases, view_range=(t_min, t_now))
             else:
-                self.plot2.update_plot([], [[], [], []], phase_spans=phase_spans, phases=phases)
+                self.plot2.update_plot([], [[], [], []], phase_spans=phase_spans, phases=phases, view_range=(t_min, t_now))
         else:
-            self.plot2.update_plot([], [[], [], []], phase_spans=phase_spans, phases=phases)
+            self.plot2.update_plot([], [[], [], []], phase_spans=phase_spans, phases=phases, view_range=(t_min, t_now))
         self._update_metrics_and_suggestion()
 
     def _update_metrics_and_suggestion(self):

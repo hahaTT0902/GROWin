@@ -64,6 +64,8 @@ switch_angle_ranges = {
 
 # 阶段追踪，检测状态切换点
 toggle_angles = []
+# 右侧角度：仅在phase切换时更新，之后定格显示
+frozen_angles = {}  # {name: angle_value} — snapshot at phase switch
 
 class StrokeStateTracker:
     def __init__(self):
@@ -288,8 +290,9 @@ def main(data_callback=None, running_flag=lambda: True, get_mirror=lambda: False
                     p1, p2, p3 = joints[joint_ids[0]], joints[joint_ids[1]], joints[joint_ids[2]]
                     cv2.line(frame, p1, p2, (0, 255, 0), 2)
                     cv2.line(frame, p2, p3, (0, 255, 0), 2)
-                    angle = angles[name]
-                    cv2.putText(frame, f"{int(angle)}°", (p2[0] + 10, p2[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 5)
+                    # 仅显示phase切换时定格的角度
+                    if name in frozen_angles:
+                        cv2.putText(frame, f"{int(frozen_angles[name])}°", (p2[0] + 10, p2[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 5)
 
             shoulder = get_joint_if_visible(joints, 12)
             hip = get_joint_if_visible(joints, 24)
@@ -321,6 +324,11 @@ def main(data_callback=None, running_flag=lambda: True, get_mirror=lambda: False
                 angles,
                 hip_x=hip_x,
             )
+            # phase切换时定格角度
+            if switch is not None:
+                frozen_angles.clear()
+                frozen_angles.update(angles)
+
             phase_labels.append(stroke_phase)
             if len(phase_spans) == 0 or phase_spans[-1][1] != stroke_phase:
                 phase_spans.append((t, stroke_phase))
@@ -361,10 +369,6 @@ def main(data_callback=None, running_flag=lambda: True, get_mirror=lambda: False
         # Text overlays removed — data sent via callback
 
         gui_toggle_angles = list(toggle_angles)
-        if not gui_toggle_angles and angles:
-            gui_toggle_angles = [
-                (t, "Drive→Recovery" if stroke_phase == "Recovery" else "Recovery→Drive", angles.copy())
-            ]
         if data_callback:
             data_callback({
                 'frame': frame.copy(),
