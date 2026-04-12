@@ -17,11 +17,6 @@ This project is under active development.
 ![12月31日(2)](https://github.com/user-attachments/assets/5f3ec397-9fdb-4bdd-8f6b-7c7095152dfb)
 
 
-## Status
-
-Functional prototype.  
-Currently optimized for indoor rowing environments.  
-Outdoor rowing support is experimental.
 
 ## Website
 
