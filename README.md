@@ -6,11 +6,6 @@ The system identifies rowing phases, tracks joint kinematics, and evaluates coor
 
 This project is under active development.
 
-
-## Website
-
-https://hydro-drive.com/
-
 ## Contributions
 
 This is a personal research and engineering project.  
